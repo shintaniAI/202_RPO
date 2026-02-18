@@ -1,0 +1,5 @@
+{
+  "name": "RPO Monthly Reporter",
+  "description": "An AI-powered tool for RPO consultants to generate monthly recruitment reports by analyzing operational CSV data and market report images.",
+  "requestFramePermissions": []
+}
