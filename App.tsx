@@ -4,7 +4,7 @@ import { FileUploader } from './components/FileUploader';
 import { Dashboard } from './components/Dashboard';
 import { ApplicantDemographics } from './components/ApplicantDemographics';
 import { generateReport } from './services/geminiService';
-import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType, AppConfig } from './types';
+import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType } from './types';
 import { 
   Loader2, 
   BrainCircuit, 
@@ -27,15 +27,7 @@ import {
   Plus,
   Trash2,
   Calendar,
-  Lightbulb,
-  Download,
-  Save,
-  Sheet,
-  ExternalLink,
-  AlertTriangle,
-  RefreshCw,
-  ImagePlus,
-  X
+  Lightbulb
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -70,138 +62,10 @@ const App: React.FC = () => {
   const [recommendedActions, setRecommendedActions] = useState<string[]>([]);
   const [interviewQuestions, setInterviewQuestions] = useState<string[]>([]);
   const [personaImage, setPersonaImage] = useState<string | undefined>(undefined);
-  const [personaMatchRate, setPersonaMatchRate] = useState<number | undefined>(undefined);
-  const [personaMatchDetails, setPersonaMatchDetails] = useState<string | undefined>(undefined);
-
+  
   const [webSources, setWebSources] = useState<WebSource[]>([]);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
-
-  // App Config (persisted in localStorage)
-  const [appConfig, setAppConfig] = useState<AppConfig>(() => {
-    try {
-      const saved = localStorage.getItem('rpo_app_config');
-      return saved ? JSON.parse(saved) : {};
-    } catch { return {}; }
-  });
-  const [showSettings, setShowSettings] = useState<boolean>(false);
-  const [savingToDoc, setSavingToDoc] = useState<boolean>(false);
-  const [savedDocUrl, setSavedDocUrl] = useState<string | undefined>(undefined);
-  const [fetchingSheets, setFetchingSheets] = useState<boolean>(false);
-  const [dataSourceTab, setDataSourceTab] = useState<'csv' | 'sheets'>('csv');
-  const logoInputRef = useRef<HTMLInputElement>(null);
-
-  const saveAppConfig = (newConfig: AppConfig) => {
-    setAppConfig(newConfig);
-    localStorage.setItem('rpo_app_config', JSON.stringify(newConfig));
-  };
-
-  // Logo upload handler
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      alert('画像ファイルを選択してください');
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      alert('ファイルサイズは2MB以下にしてください');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      saveAppConfig({ ...appConfig, logoUrl: dataUrl });
-    };
-    reader.readAsDataURL(file);
-    if (logoInputRef.current) logoInputRef.current.value = '';
-  };
-
-  // Save report to Google Doc via n8n
-  const handleSaveToGoogleDoc = async () => {
-    if (!appConfig.webhookUrl) {
-      alert('設定からWebhook URLを入力してください');
-      setShowSettings(true);
-      return;
-    }
-    setSavingToDoc(true);
-    setSavedDocUrl(undefined);
-    try {
-      const payload = {
-        clientName: clientInfo.name,
-        jobTitle: clientInfo.jobTitle,
-        reportDate,
-        executiveSummary,
-        performanceContent: performanceText,
-        candidateAnalysis: candidateAnalysisText,
-        personaMatchRate,
-        personaMatchDetails,
-        trendsContent: trendsText,
-        marketExamples,
-        strategyContent: strategyText,
-        recommendedActions,
-        interviewQuestions,
-      };
-      const res = await fetch(appConfig.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (data.success && data.documentUrl) {
-        setSavedDocUrl(data.documentUrl);
-      } else {
-        alert('保存に失敗しました: ' + JSON.stringify(data));
-      }
-    } catch (e: any) {
-      alert('保存エラー: ' + e.message);
-    } finally {
-      setSavingToDoc(false);
-    }
-  };
-
-  // Fetch data from Google Sheets via n8n
-  const handleFetchFromSheets = async () => {
-    if (!appConfig.spreadsheetUrl) {
-      alert('設定からスプレッドシートURLを入力してください');
-      setShowSettings(true);
-      return;
-    }
-    // Need the sheets webhook URL (derive from webhookUrl base or use separate config)
-    const baseUrl = appConfig.webhookUrl?.replace(/\/[^/]*$/, '') || '';
-    const sheetsWebhookUrl = baseUrl + '/rpo-fetch-sheets';
-    setFetchingSheets(true);
-    try {
-      const url = `${sheetsWebhookUrl}?spreadsheetUrl=${encodeURIComponent(appConfig.spreadsheetUrl)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.success && data.csv) {
-        setCsvContent(data.csv);
-        // Parse CSV to DailyData
-        const lines = data.csv.split('\n').filter((l: string) => l.trim());
-        if (lines.length > 1) {
-          const headers = lines[0].split(',').map((h: string) => h.replace(/"/g, '').trim());
-          const rows: DailyData[] = [];
-          for (let i = 1; i < lines.length; i++) {
-            const vals = lines[i].split(',').map((v: string) => v.replace(/"/g, '').trim());
-            const row: any = {};
-            headers.forEach((h: string, idx: number) => {
-              row[h.toLowerCase()] = isNaN(Number(vals[idx])) ? vals[idx] : Number(vals[idx]);
-            });
-            rows.push(row as DailyData);
-          }
-          setParsedData(rows);
-        }
-        alert(`${data.rowCount}行のデータを取得しました`);
-      } else {
-        alert('データ取得に失敗しました');
-      }
-    } catch (e: any) {
-      alert('取得エラー: ' + e.message);
-    } finally {
-      setFetchingSheets(false);
-    }
-  };
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -278,8 +142,6 @@ const App: React.FC = () => {
       setRecommendedActions(result.recommendedActions);
       setInterviewQuestions(result.interviewQuestions);
       setPersonaImage(result.personaImageUrl);
-      setPersonaMatchRate(result.personaMatchRate !== undefined && result.personaMatchRate >= 0 ? result.personaMatchRate : undefined);
-      setPersonaMatchDetails(result.personaMatchDetails || undefined);
       setWebSources(result.webSources);
       setReportDate(new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' }));
       setLoadingState(LoadingState.SUCCESS);
@@ -377,7 +239,7 @@ const App: React.FC = () => {
             <div className="h-16 flex items-center justify-between px-8 bg-white/80 backdrop-blur border-b border-slate-200 sticky top-0 z-10 print:hidden">
                 <div className="flex items-center space-x-2">
                     <FileBarChart2 className="text-blue-900" size={20} />
-                    <span className="font-bold text-slate-700 text-sm tracking-wide">Report Preview</span>
+                    <span className="font-bold text-slate-700 text-sm tracking-wide">レポートプレビュー</span>
                 </div>
                 {loadingState === LoadingState.SUCCESS && (
                     <div className="flex items-center space-x-3">
@@ -395,20 +257,6 @@ const App: React.FC = () => {
                             {copyStatus === 'copied' ? <CheckCircle2 size={14}/> : <Copy size={14}/>}
                             <span>コピー</span>
                         </button>
-                        <button
-                            onClick={handleSaveToGoogleDoc}
-                            disabled={savingToDoc}
-                            className="flex items-center space-x-2 px-3 py-1.5 rounded text-xs font-medium text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {savingToDoc ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
-                            <span>{savingToDoc ? '保存中...' : 'Google Doc保存'}</span>
-                        </button>
-                        {savedDocUrl && (
-                            <a href={savedDocUrl} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-1 px-3 py-1.5 rounded text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors">
-                                <ExternalLink size={14}/>
-                                <span>Doc表示</span>
-                            </a>
-                        )}
                         <button
                             onClick={handlePrint}
                             className="flex items-center space-x-2 px-4 py-1.5 rounded bg-blue-900 text-white text-xs font-bold hover:bg-blue-800 transition-colors shadow-sm"
@@ -435,37 +283,9 @@ const App: React.FC = () => {
                     <h3 className="text-lg font-serif font-bold text-slate-800 mb-2 tracking-tight">
                         戦略レポートを構築中...
                     </h3>
-                    <div className="space-y-2 mt-4">
-                        {[
-                            { icon: <Search size={12}/>, text: "市場データを検索中..." },
-                            { icon: <Users2 size={12}/>, text: "応募者データを分析中..." },
-                            { icon: <Target size={12}/>, text: "ペルソナマッチングを評価中..." },
-                            { icon: <Lightbulb size={12}/>, text: "戦略提案を生成中..." },
-                        ].map((step, i) => (
-                            <div key={i} className="flex items-center space-x-2 text-xs text-slate-400 animate-pulse" style={{animationDelay: `${i * 0.5}s`}}>
-                                {step.icon}
-                                <span>{step.text}</span>
-                            </div>
-                        ))}
-                    </div>
-                    </div>
-                ) : loadingState === LoadingState.ERROR && !performanceText ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center max-w-md mt-[-80px]">
-                        <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mb-6">
-                            <AlertTriangle size={32} className="text-red-500" />
-                        </div>
-                        <h3 className="text-lg font-serif font-bold text-slate-800 mb-2">レポート生成に失敗しました</h3>
-                        <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                            AIサービスとの通信中にエラーが発生しました。<br/>
-                            ネットワーク接続を確認し、もう一度お試しください。
-                        </p>
-                        <button
-                            onClick={handleGenerate}
-                            className="flex items-center space-x-2 px-6 py-3 bg-blue-900 text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-blue-800 transition-colors shadow-lg"
-                        >
-                            <RefreshCw size={14}/>
-                            <span>再生成</span>
-                        </button>
+                    <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                        市場データの検索、競合比較、ペルソナ分析を実行しています。<br/>右側のパネルから設定を変更できます。
+                    </p>
                     </div>
                 ) : (
                     /* THE PHYSICAL PAPER REPORT */
@@ -476,18 +296,11 @@ const App: React.FC = () => {
                     >
                         {/* Header Strip */}
                         <div className="flex items-start justify-between border-b-2 border-blue-900 pb-6 mb-12">
-                            <div className="flex items-center space-x-4 flex-1">
-                                {appConfig.logoUrl && (
-                                    <img
-                                        src={appConfig.logoUrl}
-                                        alt="Logo"
-                                        className="h-12 w-auto object-contain print:h-10"
-                                    />
-                                )}
-                                <div>
-                                    <h1 className="text-3xl font-serif font-medium text-slate-900 mb-2">Monthly Strategic Report</h1>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Recruitment Process Outsourcing</p>
+                            <div className="flex-1">
+                                <div className="mb-4">
+                                     <img src="/logo.svg" alt="Logo" className="h-12 w-auto object-contain" />
                                 </div>
+                                <h1 className="text-3xl font-serif font-medium text-slate-900 mb-2">定例レポート</h1>
                             </div>
                             <div className="text-right flex flex-col items-end">
                                 {isEditing ? (
@@ -524,9 +337,9 @@ const App: React.FC = () => {
                            <div className="mb-12 print:break-inside-avoid bg-slate-50 p-6 border-l-4 border-blue-900 group relative">
                                 <div className="flex items-center space-x-2 mb-3">
                                     <Quote size={20} className="text-blue-900 fill-blue-900/20" />
-                                    <h2 className="text-sm font-bold text-blue-900 uppercase tracking-widest">Executive Summary</h2>
+                                    <h2 className="text-sm font-bold text-blue-900 uppercase tracking-widest">サマリー</h2>
                                 </div>
-                                <div className="prose prose-sm prose-slate max-w-none text-justify font-serif text-slate-700 italic leading-relaxed">
+                                <div className="prose prose-sm prose-slate max-w-none text-justify font-serif text-slate-700 leading-relaxed">
                                     {isEditing ? (
                                         <textarea 
                                         value={executiveSummary}
@@ -544,7 +357,14 @@ const App: React.FC = () => {
                         <div className="mb-16 print:break-inside-avoid">
                             <div className="flex items-center space-x-3 mb-8">
                                 <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-900 text-white text-[10px] font-bold">01</span>
-                                <h2 className="text-lg font-bold text-slate-800 uppercase tracking-widest">運用実績分析</h2>
+                                <div>
+                                    <h2 className="text-lg font-bold text-slate-800 uppercase tracking-widest">運用実績分析</h2>
+                                    {parsedData.length > 0 && (
+                                        <p className="text-[10px] text-slate-500 font-medium mt-1">
+                                            期間: {parsedData[0].date} 〜 {parsedData[parsedData.length - 1].date}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                             
                             {parsedData.length > 0 && (
@@ -584,7 +404,7 @@ const App: React.FC = () => {
                                 <div className="prose prose-sm prose-slate max-w-none text-justify bg-slate-50/50 p-6 border-l-2 border-amber-500 rounded-r">
                                     <div className="flex items-center mb-4 text-amber-600">
                                         <Users2 size={18} className="mr-2" />
-                                        <span className="text-xs font-bold uppercase tracking-widest">Applicant Insights</span>
+                                        <span className="text-xs font-bold uppercase tracking-widest">応募者分析インサイト</span>
                                     </div>
                                     {isEditing ? (
                                         <textarea 
@@ -676,11 +496,11 @@ const App: React.FC = () => {
                                 <div className="flex-1 w-full">
                                     <div className="flex items-center space-x-2 mb-2">
                                         <Target size={14} className="text-amber-600"/>
-                                        <span className="text-xs font-bold text-blue-900 uppercase tracking-widest">Target Persona Definition</span>
+                                        <span className="text-xs font-bold text-blue-900 uppercase tracking-widest">ターゲットペルソナ定義</span>
                                     </div>
                                     <div className="mb-3 border-b border-slate-200 pb-2">
                                         {isEditing ? (
-                                            <input
+                                            <input 
                                                 value={clientInfo.jobTitle}
                                                 onChange={(e) => setClientInfo({...clientInfo, jobTitle: e.target.value})}
                                                 className="w-full text-base font-serif font-bold text-slate-900 border-b border-blue-200 focus:outline-none focus:border-blue-500 bg-transparent"
@@ -696,39 +516,6 @@ const App: React.FC = () => {
                                     市場データと貴社の組織文化に基づき、最も獲得効率が高く、かつ定着率が見込めるターゲット層を可視化しました。本レポートの施策は、このペルソナの行動特性（転職動機、使用メディア、重視する価値観）に最適化されています。
                                     </p>
                                 </div>
-                            </div>
-                            )}
-
-                            {/* Persona Matching Results */}
-                            {personaMatchRate !== undefined && (
-                            <div className="mb-10 bg-gradient-to-r from-blue-50 to-slate-50 p-6 rounded-lg border border-blue-100">
-                                <div className="flex items-center space-x-2 mb-4">
-                                    <Target size={14} className="text-blue-600"/>
-                                    <span className="text-xs font-bold text-blue-900 uppercase tracking-widest">Persona Match Analysis</span>
-                                </div>
-                                <div className="flex items-center gap-6 mb-4">
-                                    <div className="text-center">
-                                        <div className={`text-4xl font-bold ${personaMatchRate >= 70 ? 'text-emerald-600' : personaMatchRate >= 40 ? 'text-amber-600' : 'text-red-500'}`}>
-                                            {personaMatchRate}%
-                                        </div>
-                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Match Rate</div>
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="w-full bg-slate-200 rounded-full h-3">
-                                            <div
-                                                className={`h-3 rounded-full transition-all ${personaMatchRate >= 70 ? 'bg-emerald-500' : personaMatchRate >= 40 ? 'bg-amber-500' : 'bg-red-400'}`}
-                                                style={{width: `${personaMatchRate}%`}}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                                {personaMatchDetails && (
-                                    <div className="prose prose-sm prose-slate max-w-none">
-                                        <ReactMarkdown components={markdownComponents}>
-                                            {cleanMarkdown(personaMatchDetails)}
-                                        </ReactMarkdown>
-                                    </div>
-                                )}
                             </div>
                             )}
 
@@ -785,50 +572,12 @@ const App: React.FC = () => {
                                     </ul>
                                 </div>
                             )}
-
-                            {/* Interview Questions - Editable List */}
-                            {interviewQuestions.length > 0 && (
-                                <div className="bg-slate-50 p-8 print:bg-white print:border print:border-slate-200 rounded-lg">
-                                    <div className="flex items-center justify-between mb-6">
-                                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center">
-                                            <MessageSquare size={14} className="mr-2"/>
-                                            Recommended Interview Questions
-                                        </h3>
-                                        {isEditing && (
-                                            <button onClick={addQuestion} className="flex items-center text-xs text-blue-600 font-bold hover:bg-blue-100 px-2 py-1 rounded">
-                                                <Plus size={14} className="mr-1"/> 追加
-                                            </button>
-                                        )}
-                                    </div>
-                                    <ul className="space-y-5">
-                                        {interviewQuestions.map((q, i) => (
-                                            <li key={i} className="text-sm text-slate-700 leading-relaxed font-serif flex items-start group/item">
-                                                <span className="text-xs font-sans font-bold text-blue-900 mr-3 mt-1">Q{i+1}.</span>
-                                                {isEditing ? (
-                                                     <div className="flex-1 flex items-start gap-2">
-                                                        <textarea 
-                                                            value={q} 
-                                                            onChange={(e) => updateQuestion(i, e.target.value)}
-                                                            className="flex-1 bg-white border border-slate-200 p-2 text-sm text-slate-700 rounded focus:outline-none focus:border-blue-400 resize-none h-16"
-                                                        />
-                                                        <button onClick={() => removeQuestion(i)} className="text-slate-400 hover:text-red-500 pt-2">
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <span>{q}</span>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
                         </div>
 
                         {/* Footer */}
                         {webSources.length > 0 && (
                             <div className="pt-8 border-t border-slate-100 text-[10px] text-slate-400">
-                                <p className="font-bold mb-2 uppercase tracking-widest text-slate-300">Data Sources</p>
+                                <p className="font-bold mb-2 uppercase tracking-widest text-slate-300">データソース</p>
                                 <div className="grid grid-cols-2 gap-x-8 gap-y-1">
                                     {webSources.map((source, i) => (
                                         <div key={i} className="truncate hover:text-blue-900 transition-colors cursor-pointer">
@@ -850,359 +599,200 @@ const App: React.FC = () => {
         className={`
             transition-all duration-700 ease-in-out z-20 print:hidden
             ${isIdle 
-                ? "fixed inset-0 flex items-center justify-center p-4 bg-[#F1F5F9]" 
+                ? "fixed inset-0 flex items-center justify-center p-4 bg-slate-100" 
                 : "w-full lg:w-[380px] xl:w-[420px] flex flex-col bg-white border-l border-slate-200 shadow-xl"
             }
         `}
       >
-          {/* Inner Card / Sidebar Container */}
-          <div className={`
-              flex flex-col bg-white overflow-hidden
-              ${isIdle 
-                 ? "w-full max-w-2xl h-auto max-h-[85vh] rounded-2xl shadow-2xl ring-1 ring-slate-900/5" 
-                 : "h-full"
-              }
-          `}>
-          
-                {/* Header Area */}
-                <div className={`
-                    flex items-center px-6 border-b border-slate-100 bg-white
-                    ${isIdle ? "h-20" : "h-16"}
-                `}>
-                    <div className={`
-                        flex items-center justify-center rounded shadow-sm mr-4 transition-all
-                        ${isIdle ? "w-10 h-10 bg-blue-900" : "w-8 h-8 bg-blue-900"}
-                    `}>
-                        <Settings2 className="text-white" size={isIdle ? 20 : 18} />
-                    </div>
-                    <div>
-                        <h1 className={`font-bold text-slate-800 uppercase tracking-widest ${isIdle ? "text-sm" : "text-xs"}`}>
-                            {isIdle ? "Create New Report" : "Configuration"}
-                        </h1>
-                        <p className="text-[10px] text-slate-400">Strategy Parameters</p>
-                    </div>
-                </div>
-
-                {/* Scrollable Content */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8 pb-32">
-                    
-                    {/* 1. Project Scoping */}
-                    <section className="space-y-4">
-                        <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center mb-4">
-                            Basic Info
-                        </h2>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-700 mb-1.5">企業名</label>
-                                <input 
-                                type="text" 
-                                name="name"
-                                value={clientInfo.name}
-                                onChange={handleInputChange}
-                                className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
-                                placeholder="例：株式会社サンプル"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">募集職種</label>
-                                    <input 
-                                    type="text" 
-                                    name="jobTitle"
-                                    value={clientInfo.jobTitle}
-                                    onChange={handleInputChange}
-                                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
-                                    placeholder="例：法人営業"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">目標 / 予算</label>
-                                    <input 
-                                    type="text" 
-                                    name="monthlyGoal"
-                                    value={clientInfo.monthlyGoal}
-                                    onChange={handleInputChange}
-                                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
-                                    placeholder="例：50万円"
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-700 mb-1.5">戦略コンテキスト</label>
-                                <textarea 
-                                    name="notes"
-                                    value={clientInfo.notes}
-                                    onChange={handleInputChange}
-                                    rows={3}
-                                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400 resize-none"
-                                    placeholder="今月の注力ポイント、組織課題など..."
-                                />
-                            </div>
+           {/* Inner Card / Sidebar Container */}
+           <div className={`
+               bg-white overflow-hidden transition-all duration-700 flex
+               ${isIdle 
+                  ? "w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl ring-1 ring-slate-900/5 flex-row" 
+                  : "flex-col h-full w-full"
+               }
+           `}>
+           
+                {/* LEFT BRANDING SIDEBAR (Visible only in IDLE) */}
+                {isIdle && (
+                    <div className="w-[40%] bg-white border-r border-slate-200 p-12 flex flex-col justify-between relative overflow-hidden">
+                        {/* Background Pattern */}
+                        <div className="absolute top-0 left-0 w-full h-full opacity-40 pointer-events-none">
+                            <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle,#cbd5e1_1px,transparent_1px)] bg-[length:24px_24px]"></div>
                         </div>
-                    </section>
+                        
+                        <div className="relative z-10">
+                            {/* Logo */}
+                            <div className="mb-10">
+                                 <img src="/logo.svg" alt="Logo" className="h-20 w-auto object-contain" />
+                            </div>
+                            <h1 className="text-4xl font-serif font-medium leading-tight mb-6 tracking-tight text-slate-900">
+                                株式会社202<br/>月次戦略レポート
+                            </h1>
+                        </div>
 
-                    <div className="w-full h-px bg-slate-100"></div>
+                        <div className="relative z-10">
+                             <div className="flex items-center space-x-3 text-[10px] font-bold tracking-[0.2em] uppercase text-slate-400">
+                                <div className="h-px w-8 bg-slate-300"></div>
+                                <span>RPO インテリジェンス</span>
+                             </div>
+                        </div>
+                    </div>
+                )}
 
-                    {/* 1.5 Target Persona */}
-                    <section className="space-y-4">
+                 {/* RIGHT FORM AREA */}
+                 <div className={`flex flex-col bg-white relative ${isIdle ? "w-[60%]" : "w-full h-full"}`}>
+                    
+                    {/* Header Area */}
+                    <div className={`
+                        flex items-center px-6 border-b border-slate-100 bg-white shrink-0
+                        ${isIdle ? "h-24" : "h-16"}
+                    `}>
+                        {!isIdle && (
+                            <div className="flex items-center justify-center rounded shadow-sm mr-4 w-8 h-8 bg-blue-900 text-white">
+                                <Settings2 size={18} />
+                            </div>
+                        )}
+                        <div>
+                            <h1 className={`font-bold text-slate-800 uppercase tracking-widest ${isIdle ? "text-lg" : "text-xs"}`}>
+                                {isIdle ? "新規レポート作成" : "設定"}
+                            </h1>
+                            <p className="text-[10px] text-slate-400">戦略パラメータ</p>
+                        </div>
+                    </div>
+
+                    {/* Scrollable Content */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8 pb-32">
+                        
+                        {/* 1. Project Scoping */}
+                        <section className="space-y-4">
+                            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center mb-4">
+                                基本情報
+                            </h2>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">企業名</label>
+                                    <input 
+                                    type="text" 
+                                    name="name"
+                                    value={clientInfo.name}
+                                    onChange={handleInputChange}
+                                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
+                                    placeholder="例：株式会社サンプル"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1.5">募集職種</label>
+                                        <input 
+                                        type="text" 
+                                        name="jobTitle"
+                                        value={clientInfo.jobTitle}
+                                        onChange={handleInputChange}
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
+                                        placeholder="例：法人営業"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1.5">目標 / 予算</label>
+                                        <input 
+                                        type="text" 
+                                        name="monthlyGoal"
+                                        value={clientInfo.monthlyGoal}
+                                        onChange={handleInputChange}
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
+                                        placeholder="例：50万円"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">戦略コンテキスト</label>
+                                    <textarea 
+                                        name="notes"
+                                        value={clientInfo.notes}
+                                        onChange={handleInputChange}
+                                        rows={3}
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400 resize-none"
+                                        placeholder="今月の注力ポイント、組織課題など..."
+                                    />
+                                </div>
+                            </div>
+                        </section>
+
+                        <div className="w-full h-px bg-slate-100"></div>
+
+                        {/* 2. Data Intelligence */}
+                        <section className="space-y-4">
                         <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center mb-4">
-                            Target Persona
+                            分析データ
                         </h2>
                         <div className="space-y-5">
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">年齢（下限）</label>
-                                    <input
-                                        type="number"
-                                        value={clientInfo.targetAgeMin ?? ''}
-                                        onChange={(e) => setClientInfo(prev => ({...prev, targetAgeMin: e.target.value ? Number(e.target.value) : undefined}))}
-                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
-                                        placeholder="18"
-                                        min={0}
-                                        max={100}
+                            <FileUploader
+                                label="運用ログ (CSV)"
+                                accept=".csv,.txt"
+                                selectedFiles={csvFile ? [csvFile] : []}
+                                onFilesSelected={handleCsvUpload}
+                                onRemoveFile={() => { setCsvFile(null); setCsvContent(""); setParsedData([]); }}
+                                description="AirWork, Indeed等の日次レポート"
+                            />
+
+                            <FileUploader
+                                label="応募者データ (CSV)"
+                                accept=".csv,.txt"
+                                selectedFiles={applicantFile ? [applicantFile] : []}
+                                onFilesSelected={handleApplicantUpload}
+                                onRemoveFile={() => { setApplicantFile(null); setApplicantCsvContent(""); }}
+                                description="応募者一覧・属性データ"
+                            />
+
+                            <div className="p-4 bg-slate-50 rounded border border-slate-100">
+                                <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                                <span>競合ベンチマーク</span>
+                                <span className="text-[9px] text-blue-600 font-bold flex items-center bg-blue-50 px-2 py-0.5 rounded border border-blue-100"><Sparkles size={8} className="mr-1"/>AI AUTO</span>
+                                </label>
+                                <div className="relative group">
+                                    <Search className="absolute left-3 top-2.5 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={14} strokeWidth={2} />
+                                    <input 
+                                        type="text" 
+                                        value={competitors}
+                                        onChange={(e) => setCompetitors(e.target.value)}
+                                        placeholder="特に意識する競合企業があれば入力"
+                                        className="w-full pl-9 bg-white border border-slate-200 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2 text-sm text-slate-800 transition-all outline-none"
                                     />
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">年齢（上限）</label>
-                                    <input
-                                        type="number"
-                                        value={clientInfo.targetAgeMax ?? ''}
-                                        onChange={(e) => setClientInfo(prev => ({...prev, targetAgeMax: e.target.value ? Number(e.target.value) : undefined}))}
-                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
-                                        placeholder="65"
-                                        min={0}
-                                        max={100}
-                                    />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">性別</label>
-                                    <select
-                                        value={clientInfo.targetGender ?? ''}
-                                        onChange={(e) => setClientInfo(prev => ({...prev, targetGender: e.target.value || undefined}))}
-                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none"
-                                    >
-                                        <option value="">指定なし</option>
-                                        <option value="male">男性</option>
-                                        <option value="female">女性</option>
-                                        <option value="any">不問</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">国籍</label>
-                                    <select
-                                        value={clientInfo.targetNationality ?? ''}
-                                        onChange={(e) => setClientInfo(prev => ({...prev, targetNationality: e.target.value || undefined}))}
-                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none"
-                                    >
-                                        <option value="">指定なし</option>
-                                        <option value="japanese">日本国籍</option>
-                                        <option value="foreign">外国籍</option>
-                                        <option value="any">不問</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-700 mb-1.5">求める人物像（自由記載）</label>
-                                <textarea
-                                    name="targetPersonaDescription"
-                                    value={clientInfo.targetPersonaDescription ?? ''}
-                                    onChange={handleInputChange}
-                                    rows={3}
-                                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400 resize-none"
-                                    placeholder="例: 製造業経験者、日本語N2以上、長期就労意欲が高い方..."
-                                />
                             </div>
                         </div>
-                    </section>
-
-                    <div className="w-full h-px bg-slate-100"></div>
-
-                    {/* 2. Data Intelligence */}
-                    <section className="space-y-4">
-                    <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center mb-4">
-                        Analysis Data
-                    </h2>
-
-                    {/* Data Source Tab Toggle */}
-                    <div className="flex rounded border border-slate-200 overflow-hidden">
+                        </section>
+                    </div>
+                    
+                    {/* Footer Action */}
+                    <div className="p-6 bg-white border-t border-slate-100 sticky bottom-0">
                         <button
-                            onClick={() => setDataSourceTab('csv')}
-                            className={`flex-1 flex items-center justify-center space-x-1.5 py-2 text-xs font-bold transition-colors ${dataSourceTab === 'csv' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-                        >
-                            <Download size={12}/><span>CSVアップロード</span>
-                        </button>
-                        <button
-                            onClick={() => setDataSourceTab('sheets')}
-                            className={`flex-1 flex items-center justify-center space-x-1.5 py-2 text-xs font-bold transition-colors ${dataSourceTab === 'sheets' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
-                        >
-                            <Sheet size={12}/><span>スプシから取得</span>
+                            onClick={handleGenerate}
+                            disabled={loadingState === LoadingState.ANALYZING}
+                            className={`
+                                w-full flex items-center justify-center space-x-2 py-4 text-xs font-bold tracking-[0.15em] uppercase transition-all duration-300 rounded shadow-lg shadow-blue-900/20
+                                ${(loadingState === LoadingState.ANALYZING) 
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none' 
+                                : 'bg-blue-900 text-white hover:bg-blue-800 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm'}
+                            `}
+                            >
+                            {loadingState === LoadingState.ANALYZING ? (
+                                <>
+                                <Loader2 className="animate-spin" size={16} />
+                                <span>分析中...</span>
+                                </>
+                            ) : (
+                                <>
+                                <BrainCircuit size={16} strokeWidth={2} />
+                                <span>レポートを生成</span>
+                                {isIdle && <ArrowRight size={16} className="ml-1" />}
+                                </>
+                            )}
                         </button>
                     </div>
-
-                    <div className="space-y-5">
-                        {dataSourceTab === 'sheets' ? (
-                            <div className="p-4 bg-green-50 rounded border border-green-200 space-y-3">
-                                <label className="block text-xs font-bold text-green-800 mb-1">Google スプレッドシートURL</label>
-                                <input
-                                    type="url"
-                                    value={appConfig.spreadsheetUrl || ''}
-                                    onChange={(e) => saveAppConfig({...appConfig, spreadsheetUrl: e.target.value})}
-                                    placeholder="https://docs.google.com/spreadsheets/d/..."
-                                    className="w-full bg-white border border-green-300 focus:border-green-600 focus:ring-1 focus:ring-green-100 rounded px-3 py-2 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
-                                />
-                                <button
-                                    onClick={handleFetchFromSheets}
-                                    disabled={fetchingSheets || !appConfig.spreadsheetUrl}
-                                    className="w-full flex items-center justify-center space-x-2 py-2.5 rounded text-xs font-bold bg-green-600 text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors"
-                                >
-                                    {fetchingSheets ? <Loader2 size={14} className="animate-spin"/> : <Sheet size={14}/>}
-                                    <span>{fetchingSheets ? '取得中...' : 'データを取得'}</span>
-                                </button>
-                                {csvContent && dataSourceTab === 'sheets' && (
-                                    <p className="text-xs text-green-700 font-medium">取得済み ({parsedData.length}行)</p>
-                                )}
-                            </div>
-                        ) : (
-                        <FileUploader
-                            label="運用ログ (CSV)"
-                            accept=".csv,.txt"
-                            selectedFiles={csvFile ? [csvFile] : []}
-                            onFilesSelected={handleCsvUpload}
-                            onRemoveFile={() => { setCsvFile(null); setCsvContent(""); setParsedData([]); }}
-                            description="AirWork, Indeed等の日次レポート"
-                        />
-                        )}
-
-                        <FileUploader
-                            label="応募者データ (CSV)"
-                            accept=".csv,.txt"
-                            selectedFiles={applicantFile ? [applicantFile] : []}
-                            onFilesSelected={handleApplicantUpload}
-                            onRemoveFile={() => { setApplicantFile(null); setApplicantCsvContent(""); }}
-                            description="応募者一覧・属性データ"
-                        />
-
-                        <div className="p-4 bg-slate-50 rounded border border-slate-100">
-                            <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
-                            <span>競合ベンチマーク</span>
-                            <span className="text-[9px] text-blue-600 font-bold flex items-center bg-blue-50 px-2 py-0.5 rounded border border-blue-100"><Sparkles size={8} className="mr-1"/>AI AUTO</span>
-                            </label>
-                            <div className="relative group">
-                                <Search className="absolute left-3 top-2.5 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={14} strokeWidth={2} />
-                                <input 
-                                    type="text" 
-                                    value={competitors}
-                                    onChange={(e) => setCompetitors(e.target.value)}
-                                    placeholder="特に意識する競合企業があれば入力"
-                                    className="w-full pl-9 bg-white border border-slate-200 focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2 text-sm text-slate-800 transition-all outline-none"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                    </section>
-
-                    <div className="w-full h-px bg-slate-100"></div>
-
-                    {/* 3. n8n Integration Settings */}
-                    <section className="space-y-4">
-                        <button
-                            onClick={() => setShowSettings(!showSettings)}
-                            className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center w-full hover:text-slate-600 transition-colors"
-                        >
-                            <Settings2 size={12} className="mr-2"/>
-                            Integration Settings
-                            <span className="ml-auto text-[10px]">{showSettings ? '▲' : '▼'}</span>
-                        </button>
-                        {showSettings && (
-                            <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">n8n Webhook URL</label>
-                                    <input
-                                        type="url"
-                                        value={appConfig.webhookUrl || ''}
-                                        onChange={(e) => saveAppConfig({...appConfig, webhookUrl: e.target.value})}
-                                        placeholder="https://your-n8n.com/webhook/rpo-save-doc"
-                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
-                                    />
-                                    <p className="text-[10px] text-slate-400 mt-1">Googleドキュメント保存・スプシ取得用</p>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">レポートロゴ</label>
-                                    <input
-                                        ref={logoInputRef}
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={handleLogoUpload}
-                                        className="hidden"
-                                    />
-                                    {appConfig.logoUrl ? (
-                                        <div className="flex items-center space-x-3 bg-slate-50 border border-slate-200 rounded p-3">
-                                            <img src={appConfig.logoUrl} alt="Logo" className="h-10 w-auto object-contain rounded" />
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-xs text-slate-600 truncate">ロゴ設定済み</p>
-                                            </div>
-                                            <div className="flex items-center space-x-1">
-                                                <button
-                                                    onClick={() => logoInputRef.current?.click()}
-                                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                    title="変更"
-                                                >
-                                                    <ImagePlus size={14} />
-                                                </button>
-                                                <button
-                                                    onClick={() => saveAppConfig({...appConfig, logoUrl: undefined})}
-                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                    title="削除"
-                                                >
-                                                    <X size={14} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <button
-                                            onClick={() => logoInputRef.current?.click()}
-                                            className="w-full flex items-center justify-center space-x-2 py-3 bg-slate-50 border border-dashed border-slate-300 rounded hover:border-blue-400 hover:bg-blue-50/50 transition-all text-slate-500 hover:text-blue-600"
-                                        >
-                                            <ImagePlus size={16} />
-                                            <span className="text-xs font-medium">ロゴをアップロード</span>
-                                        </button>
-                                    )}
-                                    <p className="text-[10px] text-slate-400 mt-1">レポートヘッダーに表示（2MB以下）</p>
-                                </div>
-                            </div>
-                        )}
-                    </section>
-                </div>
-
-                {/* Footer Action */}
-                <div className="p-6 bg-white border-t border-slate-100 sticky bottom-0">
-                    <button
-                        onClick={handleGenerate}
-                        disabled={loadingState === LoadingState.ANALYZING}
-                        className={`
-                            w-full flex items-center justify-center space-x-2 py-4 text-xs font-bold tracking-[0.15em] uppercase transition-all duration-300 rounded shadow-lg shadow-blue-900/20
-                            ${(loadingState === LoadingState.ANALYZING) 
-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200 shadow-none' 
-                            : 'bg-blue-900 text-white hover:bg-blue-800 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm'}
-                        `}
-                        >
-                        {loadingState === LoadingState.ANALYZING ? (
-                            <>
-                            <Loader2 className="animate-spin" size={16} />
-                            <span>分析中...</span>
-                            </>
-                        ) : (
-                            <>
-                            <BrainCircuit size={16} strokeWidth={2} />
-                            <span>レポートを生成</span>
-                            {isIdle && <ArrowRight size={16} className="ml-1" />}
-                            </>
-                        )}
-                    </button>
-                </div>
-            </div>
+                 </div>
+           </div>
       </div>
     </div>
   );
