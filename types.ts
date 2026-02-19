@@ -12,6 +12,11 @@ export interface ClientInfo {
   jobTitle: string;
   monthlyGoal: string;
   notes: string;
+  targetAgeMin?: number;
+  targetAgeMax?: number;
+  targetGender?: string;
+  targetNationality?: string;
+  targetPersonaDescription?: string;
 }
 
 export interface WebSource {
@@ -40,8 +45,15 @@ export interface AnalysisResult {
   strategyContent: string;    // Competitor research & broad strategy (KPT format)
   recommendedActions: string[]; // Concrete actionable measures (施策)
   interviewQuestions: string[]; // Suggested interview questions
-  personaImageUrl?: string;     // Generated image of the target candidate
+  personaMatchRate?: number;       // Persona match rate (%)
+  personaMatchDetails?: string;    // Persona matching analysis (Markdown)
+  personaImageUrl?: string;        // Generated image of the target candidate
   webSources: WebSource[];
+}
+
+export interface AppConfig {
+  webhookUrl?: string;
+  spreadsheetUrl?: string;
 }
 
 export enum LoadingState {

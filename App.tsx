@@ -4,7 +4,7 @@ import { FileUploader } from './components/FileUploader';
 import { Dashboard } from './components/Dashboard';
 import { ApplicantDemographics } from './components/ApplicantDemographics';
 import { generateReport } from './services/geminiService';
-import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType } from './types';
+import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType, AppConfig } from './types';
 import { 
   Loader2, 
   BrainCircuit, 
@@ -27,7 +27,13 @@ import {
   Plus,
   Trash2,
   Calendar,
-  Lightbulb
+  Lightbulb,
+  Download,
+  Save,
+  Sheet,
+  ExternalLink,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -62,10 +68,116 @@ const App: React.FC = () => {
   const [recommendedActions, setRecommendedActions] = useState<string[]>([]);
   const [interviewQuestions, setInterviewQuestions] = useState<string[]>([]);
   const [personaImage, setPersonaImage] = useState<string | undefined>(undefined);
-  
+  const [personaMatchRate, setPersonaMatchRate] = useState<number | undefined>(undefined);
+  const [personaMatchDetails, setPersonaMatchDetails] = useState<string | undefined>(undefined);
+
   const [webSources, setWebSources] = useState<WebSource[]>([]);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
+
+  // App Config (persisted in localStorage)
+  const [appConfig, setAppConfig] = useState<AppConfig>(() => {
+    try {
+      const saved = localStorage.getItem('rpo_app_config');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [savingToDoc, setSavingToDoc] = useState<boolean>(false);
+  const [savedDocUrl, setSavedDocUrl] = useState<string | undefined>(undefined);
+  const [fetchingSheets, setFetchingSheets] = useState<boolean>(false);
+  const [dataSourceTab, setDataSourceTab] = useState<'csv' | 'sheets'>('csv');
+
+  const saveAppConfig = (newConfig: AppConfig) => {
+    setAppConfig(newConfig);
+    localStorage.setItem('rpo_app_config', JSON.stringify(newConfig));
+  };
+
+  // Save report to Google Doc via n8n
+  const handleSaveToGoogleDoc = async () => {
+    if (!appConfig.webhookUrl) {
+      alert('設定からWebhook URLを入力してください');
+      setShowSettings(true);
+      return;
+    }
+    setSavingToDoc(true);
+    setSavedDocUrl(undefined);
+    try {
+      const payload = {
+        clientName: clientInfo.name,
+        jobTitle: clientInfo.jobTitle,
+        reportDate,
+        executiveSummary,
+        performanceContent: performanceText,
+        candidateAnalysis: candidateAnalysisText,
+        personaMatchRate,
+        personaMatchDetails,
+        trendsContent: trendsText,
+        marketExamples,
+        strategyContent: strategyText,
+        recommendedActions,
+        interviewQuestions,
+      };
+      const res = await fetch(appConfig.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success && data.documentUrl) {
+        setSavedDocUrl(data.documentUrl);
+      } else {
+        alert('保存に失敗しました: ' + JSON.stringify(data));
+      }
+    } catch (e: any) {
+      alert('保存エラー: ' + e.message);
+    } finally {
+      setSavingToDoc(false);
+    }
+  };
+
+  // Fetch data from Google Sheets via n8n
+  const handleFetchFromSheets = async () => {
+    if (!appConfig.spreadsheetUrl) {
+      alert('設定からスプレッドシートURLを入力してください');
+      setShowSettings(true);
+      return;
+    }
+    // Need the sheets webhook URL (derive from webhookUrl base or use separate config)
+    const baseUrl = appConfig.webhookUrl?.replace(/\/[^/]*$/, '') || '';
+    const sheetsWebhookUrl = baseUrl + '/rpo-fetch-sheets';
+    setFetchingSheets(true);
+    try {
+      const url = `${sheetsWebhookUrl}?spreadsheetUrl=${encodeURIComponent(appConfig.spreadsheetUrl)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success && data.csv) {
+        setCsvContent(data.csv);
+        // Parse CSV to DailyData
+        const lines = data.csv.split('\n').filter((l: string) => l.trim());
+        if (lines.length > 1) {
+          const headers = lines[0].split(',').map((h: string) => h.replace(/"/g, '').trim());
+          const rows: DailyData[] = [];
+          for (let i = 1; i < lines.length; i++) {
+            const vals = lines[i].split(',').map((v: string) => v.replace(/"/g, '').trim());
+            const row: any = {};
+            headers.forEach((h: string, idx: number) => {
+              row[h.toLowerCase()] = isNaN(Number(vals[idx])) ? vals[idx] : Number(vals[idx]);
+            });
+            rows.push(row as DailyData);
+          }
+          setParsedData(rows);
+        }
+        alert(`${data.rowCount}行のデータを取得しました`);
+      } else {
+        alert('データ取得に失敗しました');
+      }
+    } catch (e: any) {
+      alert('取得エラー: ' + e.message);
+    } finally {
+      setFetchingSheets(false);
+    }
+  };
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +254,8 @@ const App: React.FC = () => {
       setRecommendedActions(result.recommendedActions);
       setInterviewQuestions(result.interviewQuestions);
       setPersonaImage(result.personaImageUrl);
+      setPersonaMatchRate(result.personaMatchRate !== undefined && result.personaMatchRate >= 0 ? result.personaMatchRate : undefined);
+      setPersonaMatchDetails(result.personaMatchDetails || undefined);
       setWebSources(result.webSources);
       setReportDate(new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' }));
       setLoadingState(LoadingState.SUCCESS);
@@ -258,6 +372,20 @@ const App: React.FC = () => {
                             <span>コピー</span>
                         </button>
                         <button
+                            onClick={handleSaveToGoogleDoc}
+                            disabled={savingToDoc}
+                            className="flex items-center space-x-2 px-3 py-1.5 rounded text-xs font-medium text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {savingToDoc ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
+                            <span>{savingToDoc ? '保存中...' : 'Google Doc保存'}</span>
+                        </button>
+                        {savedDocUrl && (
+                            <a href={savedDocUrl} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-1 px-3 py-1.5 rounded text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors">
+                                <ExternalLink size={14}/>
+                                <span>Doc表示</span>
+                            </a>
+                        )}
+                        <button
                             onClick={handlePrint}
                             className="flex items-center space-x-2 px-4 py-1.5 rounded bg-blue-900 text-white text-xs font-bold hover:bg-blue-800 transition-colors shadow-sm"
                         >
@@ -283,9 +411,37 @@ const App: React.FC = () => {
                     <h3 className="text-lg font-serif font-bold text-slate-800 mb-2 tracking-tight">
                         戦略レポートを構築中...
                     </h3>
-                    <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                        市場データの検索、競合比較、ペルソナ分析を実行しています。<br/>右側のパネルから設定を変更できます。
-                    </p>
+                    <div className="space-y-2 mt-4">
+                        {[
+                            { icon: <Search size={12}/>, text: "市場データを検索中..." },
+                            { icon: <Users2 size={12}/>, text: "応募者データを分析中..." },
+                            { icon: <Target size={12}/>, text: "ペルソナマッチングを評価中..." },
+                            { icon: <Lightbulb size={12}/>, text: "戦略提案を生成中..." },
+                        ].map((step, i) => (
+                            <div key={i} className="flex items-center space-x-2 text-xs text-slate-400 animate-pulse" style={{animationDelay: `${i * 0.5}s`}}>
+                                {step.icon}
+                                <span>{step.text}</span>
+                            </div>
+                        ))}
+                    </div>
+                    </div>
+                ) : loadingState === LoadingState.ERROR && !performanceText ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center max-w-md mt-[-80px]">
+                        <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mb-6">
+                            <AlertTriangle size={32} className="text-red-500" />
+                        </div>
+                        <h3 className="text-lg font-serif font-bold text-slate-800 mb-2">レポート生成に失敗しました</h3>
+                        <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+                            AIサービスとの通信中にエラーが発生しました。<br/>
+                            ネットワーク接続を確認し、もう一度お試しください。
+                        </p>
+                        <button
+                            onClick={handleGenerate}
+                            className="flex items-center space-x-2 px-6 py-3 bg-blue-900 text-white text-xs font-bold uppercase tracking-wider rounded hover:bg-blue-800 transition-colors shadow-lg"
+                        >
+                            <RefreshCw size={14}/>
+                            <span>再生成</span>
+                        </button>
                     </div>
                 ) : (
                     /* THE PHYSICAL PAPER REPORT */
@@ -491,7 +647,7 @@ const App: React.FC = () => {
                                     </div>
                                     <div className="mb-3 border-b border-slate-200 pb-2">
                                         {isEditing ? (
-                                            <input 
+                                            <input
                                                 value={clientInfo.jobTitle}
                                                 onChange={(e) => setClientInfo({...clientInfo, jobTitle: e.target.value})}
                                                 className="w-full text-base font-serif font-bold text-slate-900 border-b border-blue-200 focus:outline-none focus:border-blue-500 bg-transparent"
@@ -507,6 +663,39 @@ const App: React.FC = () => {
                                     市場データと貴社の組織文化に基づき、最も獲得効率が高く、かつ定着率が見込めるターゲット層を可視化しました。本レポートの施策は、このペルソナの行動特性（転職動機、使用メディア、重視する価値観）に最適化されています。
                                     </p>
                                 </div>
+                            </div>
+                            )}
+
+                            {/* Persona Matching Results */}
+                            {personaMatchRate !== undefined && (
+                            <div className="mb-10 bg-gradient-to-r from-blue-50 to-slate-50 p-6 rounded-lg border border-blue-100">
+                                <div className="flex items-center space-x-2 mb-4">
+                                    <Target size={14} className="text-blue-600"/>
+                                    <span className="text-xs font-bold text-blue-900 uppercase tracking-widest">Persona Match Analysis</span>
+                                </div>
+                                <div className="flex items-center gap-6 mb-4">
+                                    <div className="text-center">
+                                        <div className={`text-4xl font-bold ${personaMatchRate >= 70 ? 'text-emerald-600' : personaMatchRate >= 40 ? 'text-amber-600' : 'text-red-500'}`}>
+                                            {personaMatchRate}%
+                                        </div>
+                                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Match Rate</div>
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="w-full bg-slate-200 rounded-full h-3">
+                                            <div
+                                                className={`h-3 rounded-full transition-all ${personaMatchRate >= 70 ? 'bg-emerald-500' : personaMatchRate >= 40 ? 'bg-amber-500' : 'bg-red-400'}`}
+                                                style={{width: `${personaMatchRate}%`}}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                {personaMatchDetails && (
+                                    <div className="prose prose-sm prose-slate max-w-none">
+                                        <ReactMarkdown components={markdownComponents}>
+                                            {cleanMarkdown(personaMatchDetails)}
+                                        </ReactMarkdown>
+                                    </div>
+                                )}
                             </div>
                             )}
 
@@ -721,12 +910,128 @@ const App: React.FC = () => {
 
                     <div className="w-full h-px bg-slate-100"></div>
 
+                    {/* 1.5 Target Persona */}
+                    <section className="space-y-4">
+                        <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center mb-4">
+                            Target Persona
+                        </h2>
+                        <div className="space-y-5">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">年齢（下限）</label>
+                                    <input
+                                        type="number"
+                                        value={clientInfo.targetAgeMin ?? ''}
+                                        onChange={(e) => setClientInfo(prev => ({...prev, targetAgeMin: e.target.value ? Number(e.target.value) : undefined}))}
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
+                                        placeholder="18"
+                                        min={0}
+                                        max={100}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">年齢（上限）</label>
+                                    <input
+                                        type="number"
+                                        value={clientInfo.targetAgeMax ?? ''}
+                                        onChange={(e) => setClientInfo(prev => ({...prev, targetAgeMax: e.target.value ? Number(e.target.value) : undefined}))}
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
+                                        placeholder="65"
+                                        min={0}
+                                        max={100}
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">性別</label>
+                                    <select
+                                        value={clientInfo.targetGender ?? ''}
+                                        onChange={(e) => setClientInfo(prev => ({...prev, targetGender: e.target.value || undefined}))}
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none"
+                                    >
+                                        <option value="">指定なし</option>
+                                        <option value="male">男性</option>
+                                        <option value="female">女性</option>
+                                        <option value="any">不問</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">国籍</label>
+                                    <select
+                                        value={clientInfo.targetNationality ?? ''}
+                                        onChange={(e) => setClientInfo(prev => ({...prev, targetNationality: e.target.value || undefined}))}
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none"
+                                    >
+                                        <option value="">指定なし</option>
+                                        <option value="japanese">日本国籍</option>
+                                        <option value="foreign">外国籍</option>
+                                        <option value="any">不問</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 mb-1.5">求める人物像（自由記載）</label>
+                                <textarea
+                                    name="targetPersonaDescription"
+                                    value={clientInfo.targetPersonaDescription ?? ''}
+                                    onChange={handleInputChange}
+                                    rows={3}
+                                    className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400 resize-none"
+                                    placeholder="例: 製造業経験者、日本語N2以上、長期就労意欲が高い方..."
+                                />
+                            </div>
+                        </div>
+                    </section>
+
+                    <div className="w-full h-px bg-slate-100"></div>
+
                     {/* 2. Data Intelligence */}
                     <section className="space-y-4">
                     <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center mb-4">
                         Analysis Data
                     </h2>
+
+                    {/* Data Source Tab Toggle */}
+                    <div className="flex rounded border border-slate-200 overflow-hidden">
+                        <button
+                            onClick={() => setDataSourceTab('csv')}
+                            className={`flex-1 flex items-center justify-center space-x-1.5 py-2 text-xs font-bold transition-colors ${dataSourceTab === 'csv' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                        >
+                            <Download size={12}/><span>CSVアップロード</span>
+                        </button>
+                        <button
+                            onClick={() => setDataSourceTab('sheets')}
+                            className={`flex-1 flex items-center justify-center space-x-1.5 py-2 text-xs font-bold transition-colors ${dataSourceTab === 'sheets' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                        >
+                            <Sheet size={12}/><span>スプシから取得</span>
+                        </button>
+                    </div>
+
                     <div className="space-y-5">
+                        {dataSourceTab === 'sheets' ? (
+                            <div className="p-4 bg-green-50 rounded border border-green-200 space-y-3">
+                                <label className="block text-xs font-bold text-green-800 mb-1">Google スプレッドシートURL</label>
+                                <input
+                                    type="url"
+                                    value={appConfig.spreadsheetUrl || ''}
+                                    onChange={(e) => saveAppConfig({...appConfig, spreadsheetUrl: e.target.value})}
+                                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                                    className="w-full bg-white border border-green-300 focus:border-green-600 focus:ring-1 focus:ring-green-100 rounded px-3 py-2 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
+                                />
+                                <button
+                                    onClick={handleFetchFromSheets}
+                                    disabled={fetchingSheets || !appConfig.spreadsheetUrl}
+                                    className="w-full flex items-center justify-center space-x-2 py-2.5 rounded text-xs font-bold bg-green-600 text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    {fetchingSheets ? <Loader2 size={14} className="animate-spin"/> : <Sheet size={14}/>}
+                                    <span>{fetchingSheets ? '取得中...' : 'データを取得'}</span>
+                                </button>
+                                {csvContent && dataSourceTab === 'sheets' && (
+                                    <p className="text-xs text-green-700 font-medium">取得済み ({parsedData.length}行)</p>
+                                )}
+                            </div>
+                        ) : (
                         <FileUploader
                             label="運用ログ (CSV)"
                             accept=".csv,.txt"
@@ -735,6 +1040,7 @@ const App: React.FC = () => {
                             onRemoveFile={() => { setCsvFile(null); setCsvContent(""); setParsedData([]); }}
                             description="AirWork, Indeed等の日次レポート"
                         />
+                        )}
 
                         <FileUploader
                             label="応募者データ (CSV)"
@@ -763,8 +1069,37 @@ const App: React.FC = () => {
                         </div>
                     </div>
                     </section>
+
+                    <div className="w-full h-px bg-slate-100"></div>
+
+                    {/* 3. n8n Integration Settings */}
+                    <section className="space-y-4">
+                        <button
+                            onClick={() => setShowSettings(!showSettings)}
+                            className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center w-full hover:text-slate-600 transition-colors"
+                        >
+                            <Settings2 size={12} className="mr-2"/>
+                            Integration Settings
+                            <span className="ml-auto text-[10px]">{showSettings ? '▲' : '▼'}</span>
+                        </button>
+                        {showSettings && (
+                            <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">n8n Webhook URL</label>
+                                    <input
+                                        type="url"
+                                        value={appConfig.webhookUrl || ''}
+                                        onChange={(e) => saveAppConfig({...appConfig, webhookUrl: e.target.value})}
+                                        placeholder="https://your-n8n.com/webhook/rpo-save-doc"
+                                        className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
+                                    />
+                                    <p className="text-[10px] text-slate-400 mt-1">Googleドキュメント保存・スプシ取得用</p>
+                                </div>
+                            </div>
+                        )}
+                    </section>
                 </div>
-                
+
                 {/* Footer Action */}
                 <div className="p-6 bg-white border-t border-slate-100 sticky bottom-0">
                     <button

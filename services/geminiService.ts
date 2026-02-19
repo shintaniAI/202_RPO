@@ -95,9 +95,17 @@ const generateTextReport = async (
               type: Type.ARRAY,
               items: { type: Type.STRING },
               description: "List of 5 strategic interview questions in Japanese.",
+            },
+            persona_match_rate: {
+              type: Type.NUMBER,
+              description: "ペルソナマッチ率（0〜100の整数）。応募者データとターゲットペルソナを比較し、条件に合致する応募者の割合を算出。ペルソナ情報がない場合は-1を返す。",
+            },
+            persona_match_details: {
+              type: Type.STRING,
+              description: "Markdown text: ペルソナマッチング分析の詳細。各条件（年齢・性別・国籍・自由記載条件）ごとの合致率と、総合的な所見を記述する。ペルソナ情報がない場合は空文字を返す。",
             }
           },
-          required: ["executive_summary", "performance_content", "candidate_analysis", "trends_content", "market_examples", "strategy_content", "recommended_actions", "interview_questions"],
+          required: ["executive_summary", "performance_content", "candidate_analysis", "trends_content", "market_examples", "strategy_content", "recommended_actions", "interview_questions", "persona_match_rate", "persona_match_details"],
         },
       }
     });
@@ -180,6 +188,12 @@ export const generateReport = async (
       - 月次目標/予算: ${clientInfo.monthlyGoal}
       - その他メモ: ${clientInfo.notes}
       
+      ## ターゲットペルソナ
+      ${clientInfo.targetAgeMin || clientInfo.targetAgeMax ? `- 年齢: ${clientInfo.targetAgeMin ?? '下限なし'}歳 〜 ${clientInfo.targetAgeMax ?? '上限なし'}歳` : '- 年齢: 指定なし'}
+      ${clientInfo.targetGender ? `- 性別: ${clientInfo.targetGender === 'male' ? '男性' : clientInfo.targetGender === 'female' ? '女性' : '不問'}` : '- 性別: 指定なし'}
+      ${clientInfo.targetNationality ? `- 国籍: ${clientInfo.targetNationality === 'japanese' ? '日本国籍' : clientInfo.targetNationality === 'foreign' ? '外国籍' : '不問'}` : '- 国籍: 指定なし'}
+      ${clientInfo.targetPersonaDescription ? `- 求める人物像: ${clientInfo.targetPersonaDescription}` : ''}
+
       ## リサーチ指示 (Google Search)
       以下の点についてGoogle検索を行い、最新情報をレポートに反映してください:
       1. **市場トレンド**: 「${clientInfo.jobTitle}」の直近の有効求人倍率、平均給与、検索トレンド（日本国内）。
@@ -201,6 +215,7 @@ export const generateReport = async (
          の形式で出力してください。
       7. **具体的施策（Action Plan）**: 明日から実行できる具体的な改善施策を3~5つ。
       8. **推奨面接質問**: ターゲット人材を見極めるための質問例。
+      9. **ペルソナマッチング分析**: 上記「ターゲットペルソナ」に指定された条件と応募者データを照合し、各条件ごとの合致率（年齢範囲内の割合、性別一致率、国籍一致率）と自由記載条件の充足度を分析してください。総合マッチ率を0〜100で算出してください。ペルソナ情報が指定されていない場合は-1を返してください。
 
       ## 入力データソース
     `;
@@ -276,8 +291,10 @@ export const generateReport = async (
       strategyContent: textResult.parsed.strategy_content || "戦略提案の生成に失敗しました。",
       recommendedActions: textResult.parsed.recommended_actions || [],
       interviewQuestions: textResult.parsed.interview_questions || [],
+      personaMatchRate: textResult.parsed.persona_match_rate ?? undefined,
+      personaMatchDetails: textResult.parsed.persona_match_details || undefined,
       personaImageUrl: personaImage,
-      webSources: textResult.webSources 
+      webSources: textResult.webSources
     };
 
   } catch (error) {
