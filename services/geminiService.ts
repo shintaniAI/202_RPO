@@ -90,19 +90,17 @@ const generateTextReport = async (
               type: Type.ARRAY,
               items: { type: Type.STRING },
               description: "List of 3-5 specific, concrete actionable measures (施策) to improve recruitment immediately. e.g. '求人票のキャッチコピーを〇〇に変更', 'スカウトメールの送信時間を〇〇に変更'.",
-            },
-            interview_questions: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "List of 5 strategic interview questions in Japanese.",
             }
           },
-          required: ["executive_summary", "performance_content", "candidate_analysis", "trends_content", "market_examples", "strategy_content", "recommended_actions", "interview_questions"],
+          required: ["executive_summary", "performance_content", "candidate_analysis", "trends_content", "market_examples", "strategy_content", "recommended_actions"],
         },
       }
     });
 
-    const jsonText = response.text || "{}";
+    let jsonText = response.text || "{}";
+    // Clean up markdown code blocks if present
+    jsonText = jsonText.replace(/```json\n?|\n?```/g, "").trim();
+    
     const parsed = JSON.parse(jsonText);
     
     // Extract grounding chunks
@@ -123,7 +121,7 @@ const generateTextReport = async (
     return { parsed, webSources };
 };
 
-// Helper to generate the persona image
+// Helper to generate the persona image with timeout
 const generatePersonaImage = async (clientInfo: ClientInfo): Promise<string | undefined> => {
     try {
         const prompt = `A professional, high-quality photographic portrait of a successful Japanese candidate for the position of "${clientInfo.jobTitle}" at a modern company. 
@@ -131,7 +129,12 @@ const generatePersonaImage = async (clientInfo: ClientInfo): Promise<string | un
         Neutral, professional office background with soft lighting. 
         Cinematic 8k resolution, realistic style.`;
 
-        const response = await ai.models.generateContent({
+        // Create a timeout promise that rejects after 15 seconds
+        const timeoutPromise = new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error("Image generation timed out")), 15000)
+        );
+
+        const apiCallPromise = ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: {
                 parts: [{ text: prompt }],
@@ -143,7 +146,9 @@ const generatePersonaImage = async (clientInfo: ClientInfo): Promise<string | un
             },
         });
 
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
+        const response = await Promise.race([apiCallPromise, timeoutPromise]);
+
+        for (const part of (response as any).candidates?.[0]?.content?.parts || []) {
             if (part.inlineData) {
                 const base64EncodeString = part.inlineData.data;
                 return `data:image/png;base64,${base64EncodeString}`;
@@ -151,7 +156,7 @@ const generatePersonaImage = async (clientInfo: ClientInfo): Promise<string | un
         }
         return undefined;
     } catch (e) {
-        console.warn("Image generation failed:", e);
+        console.warn("Image generation failed or timed out:", e);
         return undefined; // Fail silently for image, report is more important
     }
 };
@@ -200,7 +205,6 @@ export const generateReport = async (
          - **Try**: 次月の具体的アクション
          の形式で出力してください。
       7. **具体的施策（Action Plan）**: 明日から実行できる具体的な改善施策を3~5つ。
-      8. **推奨面接質問**: ターゲット人材を見極めるための質問例。
 
       ## 入力データソース
     `;
@@ -275,7 +279,7 @@ export const generateReport = async (
       marketExamples: textResult.parsed.market_examples || [],
       strategyContent: textResult.parsed.strategy_content || "戦略提案の生成に失敗しました。",
       recommendedActions: textResult.parsed.recommended_actions || [],
-      interviewQuestions: textResult.parsed.interview_questions || [],
+      interviewQuestions: [], // Removed as requested
       personaImageUrl: personaImage,
       webSources: textResult.webSources 
     };

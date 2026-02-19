@@ -64,7 +64,6 @@ const App: React.FC = () => {
   const [marketExamples, setMarketExamples] = useState<string[]>([]);
   const [strategyText, setStrategyText] = useState<string>("");
   const [recommendedActions, setRecommendedActions] = useState<string[]>([]);
-  const [interviewQuestions, setInterviewQuestions] = useState<string[]>([]);
   const [personaImage, setPersonaImage] = useState<string | undefined>(undefined);
   
   const [webSources, setWebSources] = useState<WebSource[]>([]);
@@ -156,7 +155,6 @@ const App: React.FC = () => {
       setMarketExamples(result.marketExamples);
       setStrategyText(result.strategyContent);
       setRecommendedActions(result.recommendedActions);
-      setInterviewQuestions(result.interviewQuestions);
       setPersonaImage(result.personaImageUrl);
       setWebSources(result.webSources);
       setReportDate(new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' }));
@@ -313,14 +311,6 @@ const App: React.FC = () => {
   };
   const addAction = () => setRecommendedActions([...recommendedActions, "新しい施策を入力..."]);
   const removeAction = (index: number) => setRecommendedActions(recommendedActions.filter((_, i) => i !== index));
-
-  const updateQuestion = (index: number, val: string) => {
-    const newQuestions = [...interviewQuestions];
-    newQuestions[index] = val;
-    setInterviewQuestions(newQuestions);
-  };
-  const addQuestion = () => setInterviewQuestions([...interviewQuestions, "新しい質問を入力..."]);
-  const removeQuestion = (index: number) => setInterviewQuestions(interviewQuestions.filter((_, i) => i !== index));
 
   const updateExample = (index: number, val: string) => {
     const newExamples = [...marketExamples];
