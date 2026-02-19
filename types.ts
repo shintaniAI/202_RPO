@@ -44,6 +44,11 @@ export interface AnalysisResult {
   webSources: WebSource[];
 }
 
+export interface AppConfig {
+  webhookUrl?: string;
+  spreadsheetUrl?: string;
+}
+
 export enum LoadingState {
   IDLE = 'IDLE',
   READING_FILES = 'READING_FILES',

@@ -4,7 +4,7 @@ import { FileUploader } from './components/FileUploader';
 import { Dashboard } from './components/Dashboard';
 import { ApplicantDemographics } from './components/ApplicantDemographics';
 import { generateReport } from './services/geminiService';
-import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType } from './types';
+import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType, AppConfig } from './types';
 import { 
   Loader2, 
   BrainCircuit, 
@@ -27,7 +27,11 @@ import {
   Plus,
   Trash2,
   Calendar,
-  Lightbulb
+  Lightbulb,
+  Download,
+  Save,
+  Sheet,
+  ExternalLink
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -68,6 +72,18 @@ const App: React.FC = () => {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
 
   const reportRef = useRef<HTMLDivElement>(null);
+
+  const [appConfig, setAppConfig] = useState<AppConfig>(() => {
+    try {
+      const saved = localStorage.getItem('rpo_app_config');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [savingToDoc, setSavingToDoc] = useState<boolean>(false);
+  const [savedDocUrl, setSavedDocUrl] = useState<string | undefined>(undefined);
+  const [fetchingSheets, setFetchingSheets] = useState<boolean>(false);
+  const [dataSourceTab, setDataSourceTab] = useState<'csv' | 'sheets'>('csv');
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -188,6 +204,91 @@ const App: React.FC = () => {
     }
   };
 
+  const saveAppConfig = (newConfig: AppConfig) => {
+    setAppConfig(newConfig);
+    localStorage.setItem('rpo_app_config', JSON.stringify(newConfig));
+  };
+
+  const handleSaveToGoogleDoc = async () => {
+    if (!appConfig.webhookUrl) {
+      alert('設定からWebhook URLを入力してください');
+      setShowSettings(true);
+      return;
+    }
+    setSavingToDoc(true);
+    setSavedDocUrl(undefined);
+    try {
+      const payload = {
+        clientName: clientInfo.name,
+        jobTitle: clientInfo.jobTitle,
+        reportDate,
+        executiveSummary,
+        performanceContent: performanceText,
+        candidateAnalysis: candidateAnalysisText,
+        trendsContent: trendsText,
+        marketExamples,
+        strategyContent: strategyText,
+        recommendedActions,
+        interviewQuestions,
+      };
+      const res = await fetch(appConfig.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success && data.documentUrl) {
+        setSavedDocUrl(data.documentUrl);
+      } else {
+        alert('保存に失敗しました: ' + JSON.stringify(data));
+      }
+    } catch (e: any) {
+      alert('保存エラー: ' + e.message);
+    } finally {
+      setSavingToDoc(false);
+    }
+  };
+
+  const handleFetchFromSheets = async () => {
+    if (!appConfig.spreadsheetUrl) {
+      alert('設定からスプレッドシートURLを入力してください');
+      setShowSettings(true);
+      return;
+    }
+    const baseUrl = appConfig.webhookUrl?.replace(/\/[^/]*$/, '') || '';
+    const sheetsWebhookUrl = baseUrl + '/rpo-fetch-sheets';
+    setFetchingSheets(true);
+    try {
+      const url = `${sheetsWebhookUrl}?spreadsheetUrl=${encodeURIComponent(appConfig.spreadsheetUrl)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success && data.csv) {
+        setCsvContent(data.csv);
+        const lines = data.csv.split('\n').filter((l: string) => l.trim());
+        if (lines.length > 1) {
+          const headers = lines[0].split(',').map((h: string) => h.replace(/"/g, '').trim());
+          const rows: DailyData[] = [];
+          for (let i = 1; i < lines.length; i++) {
+            const vals = lines[i].split(',').map((v: string) => v.replace(/"/g, '').trim());
+            const row: any = {};
+            headers.forEach((h: string, idx: number) => {
+              row[h.toLowerCase()] = isNaN(Number(vals[idx])) ? vals[idx] : Number(vals[idx]);
+            });
+            rows.push(row as DailyData);
+          }
+          setParsedData(rows);
+        }
+        alert(`${data.rowCount}行のデータを取得しました`);
+      } else {
+        alert('データ取得に失敗しました');
+      }
+    } catch (e: any) {
+      alert('取得エラー: ' + e.message);
+    } finally {
+      setFetchingSheets(false);
+    }
+  };
+
   const isIdle = loadingState === LoadingState.IDLE;
   
   const cleanMarkdown = (text: string) => {
@@ -257,6 +358,18 @@ const App: React.FC = () => {
                             {copyStatus === 'copied' ? <CheckCircle2 size={14}/> : <Copy size={14}/>}
                             <span>コピー</span>
                         </button>
+                        <button onClick={handleSaveToGoogleDoc} disabled={savingToDoc}
+                            className="flex items-center space-x-2 px-3 py-1.5 rounded text-xs font-medium text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            {savingToDoc ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>}
+                            <span>{savingToDoc ? '保存中...' : 'Google Doc保存'}</span>
+                        </button>
+                        {savedDocUrl && (
+                            <a href={savedDocUrl} target="_blank" rel="noopener noreferrer"
+                                className="flex items-center space-x-1 px-3 py-1.5 rounded text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors">
+                                <ExternalLink size={14}/>
+                                <span>Doc表示</span>
+                            </a>
+                        )}
                         <button
                             onClick={handlePrint}
                             className="flex items-center space-x-2 px-4 py-1.5 rounded bg-blue-900 text-white text-xs font-bold hover:bg-blue-800 transition-colors shadow-sm"
@@ -726,7 +839,18 @@ const App: React.FC = () => {
                         <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center mb-4">
                             分析データ
                         </h2>
+                        <div className="flex rounded border border-slate-200 overflow-hidden mb-4">
+                            <button onClick={() => setDataSourceTab('csv')}
+                                className={`flex-1 flex items-center justify-center space-x-1.5 py-2 text-xs font-bold transition-colors ${dataSourceTab === 'csv' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
+                                <Download size={12}/><span>CSVアップロード</span>
+                            </button>
+                            <button onClick={() => setDataSourceTab('sheets')}
+                                className={`flex-1 flex items-center justify-center space-x-1.5 py-2 text-xs font-bold transition-colors ${dataSourceTab === 'sheets' ? 'bg-blue-900 text-white' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
+                                <Sheet size={12}/><span>スプシから取得</span>
+                            </button>
+                        </div>
                         <div className="space-y-5">
+                            {dataSourceTab === 'csv' && (<>
                             <FileUploader
                                 label="運用ログ (CSV)"
                                 accept=".csv,.txt"
@@ -744,6 +868,26 @@ const App: React.FC = () => {
                                 onRemoveFile={() => { setApplicantFile(null); setApplicantCsvContent(""); }}
                                 description="応募者一覧・属性データ"
                             />
+                            </>)}
+
+                            {dataSourceTab === 'sheets' && (
+                                <div className="p-4 bg-green-50 rounded border border-green-200 space-y-3">
+                                    <label className="block text-xs font-bold text-green-800 mb-1">Google スプレッドシートURL</label>
+                                    <input type="url" value={appConfig.spreadsheetUrl || ''}
+                                        onChange={(e) => saveAppConfig({...appConfig, spreadsheetUrl: e.target.value})}
+                                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                                        className="w-full bg-white border border-green-300 focus:border-green-600 focus:ring-1 focus:ring-green-100 rounded px-3 py-2 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400" />
+                                    <button onClick={handleFetchFromSheets}
+                                        disabled={fetchingSheets || !appConfig.spreadsheetUrl}
+                                        className="w-full flex items-center justify-center space-x-2 py-2.5 rounded text-xs font-bold bg-green-600 text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors">
+                                        {fetchingSheets ? <Loader2 size={14} className="animate-spin"/> : <Sheet size={14}/>}
+                                        <span>{fetchingSheets ? '取得中...' : 'データを取得'}</span>
+                                    </button>
+                                    {csvContent && dataSourceTab === 'sheets' && (
+                                        <p className="text-xs text-green-700 font-medium">✓ 取得済み ({parsedData.length}行)</p>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="p-4 bg-slate-50 rounded border border-slate-100">
                                 <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
@@ -763,8 +907,30 @@ const App: React.FC = () => {
                             </div>
                         </div>
                         </section>
+
+                        <div className="w-full h-px bg-slate-100"></div>
+                        <section className="space-y-4">
+                            <button onClick={() => setShowSettings(!showSettings)}
+                                className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center w-full hover:text-slate-600 transition-colors">
+                                <Settings2 size={12} className="mr-2"/>
+                                Integration Settings
+                                <span className="ml-auto text-[10px]">{showSettings ? '▲' : '▼'}</span>
+                            </button>
+                            {showSettings && (
+                                <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1.5">n8n Webhook URL</label>
+                                        <input type="url" value={appConfig.webhookUrl || ''}
+                                            onChange={(e) => saveAppConfig({...appConfig, webhookUrl: e.target.value})}
+                                            placeholder="https://your-n8n.com/webhook/rpo-save-doc"
+                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400" />
+                                        <p className="text-[10px] text-slate-400 mt-1">Googleドキュメント保存・スプシ取得用</p>
+                                    </div>
+                                </div>
+                            )}
+                        </section>
                     </div>
-                    
+
                     {/* Footer Action */}
                     <div className="p-6 bg-white border-t border-slate-100 sticky bottom-0">
                         <button
