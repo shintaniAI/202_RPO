@@ -54,6 +54,7 @@ export interface AnalysisResult {
 export interface AppConfig {
   webhookUrl?: string;
   spreadsheetUrl?: string;
+  logoUrl?: string;
 }
 
 export enum LoadingState {

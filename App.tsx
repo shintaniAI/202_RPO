@@ -33,7 +33,9 @@ import {
   Sheet,
   ExternalLink,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  ImagePlus,
+  X
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -87,10 +89,32 @@ const App: React.FC = () => {
   const [savedDocUrl, setSavedDocUrl] = useState<string | undefined>(undefined);
   const [fetchingSheets, setFetchingSheets] = useState<boolean>(false);
   const [dataSourceTab, setDataSourceTab] = useState<'csv' | 'sheets'>('csv');
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const saveAppConfig = (newConfig: AppConfig) => {
     setAppConfig(newConfig);
     localStorage.setItem('rpo_app_config', JSON.stringify(newConfig));
+  };
+
+  // Logo upload handler
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('画像ファイルを選択してください');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      alert('ファイルサイズは2MB以下にしてください');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      saveAppConfig({ ...appConfig, logoUrl: dataUrl });
+    };
+    reader.readAsDataURL(file);
+    if (logoInputRef.current) logoInputRef.current.value = '';
   };
 
   // Save report to Google Doc via n8n
@@ -452,9 +476,18 @@ const App: React.FC = () => {
                     >
                         {/* Header Strip */}
                         <div className="flex items-start justify-between border-b-2 border-blue-900 pb-6 mb-12">
-                            <div className="flex-1">
-                                <h1 className="text-3xl font-serif font-medium text-slate-900 mb-2">Monthly Strategic Report</h1>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Recruitment Process Outsourcing</p>
+                            <div className="flex items-center space-x-4 flex-1">
+                                {appConfig.logoUrl && (
+                                    <img
+                                        src={appConfig.logoUrl}
+                                        alt="Logo"
+                                        className="h-12 w-auto object-contain print:h-10"
+                                    />
+                                )}
+                                <div>
+                                    <h1 className="text-3xl font-serif font-medium text-slate-900 mb-2">Monthly Strategic Report</h1>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Recruitment Process Outsourcing</p>
+                                </div>
                             </div>
                             <div className="text-right flex flex-col items-end">
                                 {isEditing ? (
@@ -1094,6 +1127,49 @@ const App: React.FC = () => {
                                         className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none placeholder:text-slate-400"
                                     />
                                     <p className="text-[10px] text-slate-400 mt-1">Googleドキュメント保存・スプシ取得用</p>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">レポートロゴ</label>
+                                    <input
+                                        ref={logoInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handleLogoUpload}
+                                        className="hidden"
+                                    />
+                                    {appConfig.logoUrl ? (
+                                        <div className="flex items-center space-x-3 bg-slate-50 border border-slate-200 rounded p-3">
+                                            <img src={appConfig.logoUrl} alt="Logo" className="h-10 w-auto object-contain rounded" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs text-slate-600 truncate">ロゴ設定済み</p>
+                                            </div>
+                                            <div className="flex items-center space-x-1">
+                                                <button
+                                                    onClick={() => logoInputRef.current?.click()}
+                                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                    title="変更"
+                                                >
+                                                    <ImagePlus size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => saveAppConfig({...appConfig, logoUrl: undefined})}
+                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                    title="削除"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={() => logoInputRef.current?.click()}
+                                            className="w-full flex items-center justify-center space-x-2 py-3 bg-slate-50 border border-dashed border-slate-300 rounded hover:border-blue-400 hover:bg-blue-50/50 transition-all text-slate-500 hover:text-blue-600"
+                                        >
+                                            <ImagePlus size={16} />
+                                            <span className="text-xs font-medium">ロゴをアップロード</span>
+                                        </button>
+                                    )}
+                                    <p className="text-[10px] text-slate-400 mt-1">レポートヘッダーに表示（2MB以下）</p>
                                 </div>
                             </div>
                         )}
