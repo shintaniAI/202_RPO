@@ -64,6 +64,7 @@ const App: React.FC = () => {
   const [marketExamples, setMarketExamples] = useState<string[]>([]);
   const [strategyText, setStrategyText] = useState<string>("");
   const [recommendedActions, setRecommendedActions] = useState<string[]>([]);
+  const [interviewQuestions, setInterviewQuestions] = useState<string[]>([]);
   const [personaImage, setPersonaImage] = useState<string | undefined>(undefined);
   
   const [webSources, setWebSources] = useState<WebSource[]>([]);
@@ -83,6 +84,8 @@ const App: React.FC = () => {
   const [savedDocUrl, setSavedDocUrl] = useState<string | undefined>(undefined);
   const [fetchingSheets, setFetchingSheets] = useState<boolean>(false);
   const [dataSourceTab, setDataSourceTab] = useState<'csv' | 'sheets'>('csv');
+  const [savingToPdf, setSavingToPdf] = useState<boolean>(false);
+  const [savedPdfUrl, setSavedPdfUrl] = useState<string | undefined>(undefined);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -155,6 +158,7 @@ const App: React.FC = () => {
       setMarketExamples(result.marketExamples);
       setStrategyText(result.strategyContent);
       setRecommendedActions(result.recommendedActions);
+      setInterviewQuestions(result.interviewQuestions || []);
       setPersonaImage(result.personaImageUrl);
       setWebSources(result.webSources);
       setReportDate(new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' }));
@@ -244,6 +248,68 @@ const App: React.FC = () => {
       alert('保存エラー: ' + e.message);
     } finally {
       setSavingToDoc(false);
+    }
+  };
+
+  const handleSaveToPdf = async () => {
+    if (!appConfig.webhookUrl) {
+      alert('設定からWebhook URLを入力してください');
+      setShowSettings(true);
+      return;
+    }
+    if (!reportRef.current) {
+      alert('レポートが表示されていません');
+      return;
+    }
+    setSavingToPdf(true);
+    setSavedPdfUrl(undefined);
+    try {
+      const reportHtml = reportRef.current.innerHTML;
+      const htmlContent = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif; color: #1e293b; line-height: 1.8; padding: 40px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 24px; color: #1e3a5f; border-bottom: 3px solid #1e3a5f; padding-bottom: 8px; margin-top: 32px; }
+  h2 { font-size: 20px; color: #1e3a5f; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; margin-top: 28px; }
+  h3 { font-size: 16px; color: #334155; margin-top: 20px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 24px; }
+  li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 14px; }
+  th { background-color: #f1f5f9; font-weight: bold; }
+  .executive-summary { background: #f0f9ff; border-left: 4px solid #1e3a5f; padding: 16px 20px; margin: 16px 0; border-radius: 0 8px 8px 0; }
+  strong { color: #1e3a5f; }
+</style>
+</head>
+<body>${reportHtml}</body>
+</html>`;
+      const baseUrl = appConfig.webhookUrl?.replace(/\/[^/]*$/, '') || '';
+      const pdfWebhookUrl = baseUrl + '/rpo-save-pdf';
+      const payload = {
+        reportTitle: 'RPO月次レポート_' + clientInfo.name + '_' + reportDate,
+        clientName: clientInfo.name,
+        reportPeriod: reportDate,
+        htmlContent,
+        folderId: '1RDjr32QVSbhW-g8VZ6t1zPruXgIPxN0X',
+      };
+      const res = await fetch(pdfWebhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success && data.fileUrl) {
+        setSavedPdfUrl(data.fileUrl);
+      } else {
+        alert('PDF保存に失敗しました: ' + JSON.stringify(data));
+      }
+    } catch (e: any) {
+      alert('PDF保存エラー: ' + e.message);
+    } finally {
+      setSavingToPdf(false);
     }
   };
 
@@ -358,6 +424,18 @@ const App: React.FC = () => {
                                 className="flex items-center space-x-1 px-3 py-1.5 rounded text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors">
                                 <ExternalLink size={14}/>
                                 <span>Doc表示</span>
+                            </a>
+                        )}
+                        <button onClick={handleSaveToPdf} disabled={savingToPdf}
+                            className="flex items-center space-x-2 px-3 py-1.5 rounded text-xs font-medium text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            {savingToPdf ? <Loader2 size={14} className="animate-spin"/> : <Download size={14}/>}
+                            <span>{savingToPdf ? 'PDF保存中...' : 'PDF保存'}</span>
+                        </button>
+                        {savedPdfUrl && (
+                            <a href={savedPdfUrl} target="_blank" rel="noopener noreferrer"
+                                className="flex items-center space-x-1 px-3 py-1.5 rounded text-xs font-medium text-rose-600 hover:bg-rose-50 transition-colors">
+                                <ExternalLink size={14}/>
+                                <span>PDF表示</span>
                             </a>
                         )}
                         <button
