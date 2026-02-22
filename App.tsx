@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react';
+﻿import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { FileUploader } from './components/FileUploader';
 import { Dashboard } from './components/Dashboard';
 import { ApplicantDemographics } from './components/ApplicantDemographics';
 import { generateReport } from './services/geminiService';
-import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType, AppConfig } from './types';
+import { DailyData, LoadingState, ClientInfo, WebSource, ApplicantDemographics as ApplicantDemographicsType, AppConfig, ClientPreset } from './types';
 import { 
   Loader2, 
   BrainCircuit, 
@@ -86,6 +86,40 @@ const App: React.FC = () => {
   const [dataSourceTab, setDataSourceTab] = useState<'csv' | 'sheets'>('csv');
   const [savingToPdf, setSavingToPdf] = useState<boolean>(false);
   const [savedPdfUrl, setSavedPdfUrl] = useState<string | undefined>(undefined);
+
+  const [clientPresets, setClientPresets] = useState<ClientPreset[]>([]);
+  const [selectedPresetName, setSelectedPresetName] = useState<string>('');
+  const [isLoadingPresets, setIsLoadingPresets] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!appConfig.webhookUrl) return;
+    const fetchPresets = async () => {
+      setIsLoadingPresets(true);
+      try {
+        const baseUrl = appConfig.webhookUrl?.replace(/\/[^/]*$/, '') || '';
+        const res = await fetch(baseUrl + '/rpo-client-presets');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.clients)) {
+          setClientPresets(data.clients);
+        }
+      } catch (e) {
+        console.error('Failed to fetch client presets:', e);
+      } finally {
+        setIsLoadingPresets(false);
+      }
+    };
+    fetchPresets();
+  }, [appConfig.webhookUrl]);
+
+  const handlePresetSelect = (presetName: string) => {
+    setSelectedPresetName(presetName);
+    const preset = clientPresets.find(p => p.clientName === presetName);
+    if (!preset) return;
+    setClientInfo(prev => ({ ...prev, name: preset.clientName }));
+    if (preset.spreadsheetUrl) {
+      saveAppConfig({ ...appConfig, spreadsheetUrl: preset.spreadsheetUrl });
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -293,7 +327,7 @@ const App: React.FC = () => {
         clientName: clientInfo.name,
         reportPeriod: reportDate,
         htmlContent,
-        folderId: '1RDjr32QVSbhW-g8VZ6t1zPruXgIPxN0X',
+        folderId: '1b_d7ccZLZ6exanEORxXC7iYOGiHSzdun',
       };
       const res = await fetch(pdfWebhookUrl, {
         method: 'POST',
@@ -851,6 +885,30 @@ const App: React.FC = () => {
                                 基本情報
                             </h2>
                             <div className="space-y-4">
+                                {clientPresets.length > 0 && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center">
+                                            <Briefcase size={12} className="mr-1.5 text-blue-700"/>クライアント選択
+                                        </label>
+                                        <select
+                                            value={selectedPresetName}
+                                            onChange={(e) => handlePresetSelect(e.target.value)}
+                                            className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-100 rounded px-3 py-2.5 text-sm text-slate-800 transition-all outline-none"
+                                        >
+                                            <option value="">-- マスタから選択 --</option>
+                                            {clientPresets.map((preset) => (
+                                                <option key={preset.clientName} value={preset.clientName}>
+                                                    {preset.clientName}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {isLoadingPresets && (
+                                            <p className="text-[10px] text-slate-400 mt-1 flex items-center">
+                                                <Loader2 size={10} className="animate-spin mr-1"/>読み込み中...
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
                                 <div>
                                     <label className="block text-xs font-bold text-slate-700 mb-1.5">企業名</label>
                                     <input 

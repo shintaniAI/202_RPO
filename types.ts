@@ -1,4 +1,4 @@
-export interface DailyData {
+﻿export interface DailyData {
   date: string;
   impressions: number;
   clicks: number;
@@ -12,6 +12,17 @@ export interface ClientInfo {
   jobTitle: string;
   monthlyGoal: string;
   notes: string;
+}
+
+export interface ClientPreset {
+  clientName: string;
+  spreadsheetUrl: string;
+  targetAgeMin: number | null;
+  targetAgeMax: number | null;
+  targetGender: string;
+  targetNationality: string;
+  targetPersonaDescription: string;
+  note: string;
 }
 
 export interface WebSource {
@@ -31,16 +42,16 @@ export interface ApplicantDemographics {
 }
 
 export interface AnalysisResult {
-  executiveSummary: string;   // High-level management summary
-  performanceContent: string; // Internal data analysis
-  candidateAnalysis: string;  // Qualitative analysis of applicant data
-  applicantDemographics?: ApplicantDemographics; // New: Structured demographic data
-  trendsContent: string;      // General market trends
-  marketExamples: string[];   // Competitor job posting examples
-  strategyContent: string;    // Competitor research & broad strategy (KPT format)
-  recommendedActions: string[]; // Concrete actionable measures (施策)
-  interviewQuestions: string[]; // Suggested interview questions
-  personaImageUrl?: string;     // Generated image of the target candidate
+  executiveSummary: string;
+  performanceContent: string;
+  candidateAnalysis: string;
+  applicantDemographics?: ApplicantDemographics;
+  trendsContent: string;
+  marketExamples: string[];
+  strategyContent: string;
+  recommendedActions: string[];
+  interviewQuestions: string[];
+  personaImageUrl?: string;
   webSources: WebSource[];
 }
 
